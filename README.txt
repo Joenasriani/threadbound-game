@@ -1,5 +1,7 @@
 Threadbound - Recall Prototype
 
+>> https://joenasriani.github.io/threadbound-game/
+
 Contents:
 - index.html
 - assets/threadbound_actor.glb
