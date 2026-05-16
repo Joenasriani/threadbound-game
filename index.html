@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Threadbound - Recall Prototype</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 35%, #263445 0%, #10141c 55%, #07090d 100%);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #f6ead4;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+    #game { position: fixed; inset: 0; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    .hud {
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top));
+      left: max(12px, env(safe-area-inset-left));
+      right: max(12px, env(safe-area-inset-right));
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .panel {
+      pointer-events: auto;
+      background: rgba(12, 16, 24, 0.68);
+      border: 1px solid rgba(246, 234, 212, 0.24);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.26), inset 0 0 18px rgba(98, 202, 255, 0.06);
+      backdrop-filter: blur(12px);
+      border-radius: 18px;
+      padding: clamp(10px, 2vw, 16px);
+    }
+    .title {
+      font-size: clamp(14px, 2vw, 19px);
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .sub {
+      font-size: clamp(11px, 1.6vw, 13px);
+      opacity: 0.78;
+      max-width: 540px;
+      line-height: 1.35;
+    }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    button {
+      border: 1px solid rgba(246, 234, 212, 0.25);
+      background: rgba(246, 234, 212, 0.09);
+      color: #f6ead4;
+      padding: clamp(8px, 1.8vw, 11px) clamp(10px, 2.1vw, 14px);
+      border-radius: 14px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+    }
+    button:active { transform: translateY(1px) scale(0.98); }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .worldRecall {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      z-index: 14;
+      display: none;
+      transform: translate(-50%, -50%);
+      pointer-events: auto;
+      font-size: clamp(10px, 1.55vw, 13px);
+      padding: clamp(7px, 1.35vw, 10px) clamp(10px, 2vw, 15px);
+      border-radius: 999px;
+      letter-spacing: 0.06em;
+      background: linear-gradient(135deg, rgba(79, 210, 255, 0.34), rgba(246, 234, 212, 0.16));
+      border-color: rgba(98, 216, 255, 0.72);
+      box-shadow: 0 0 28px rgba(86, 217, 255, 0.28), inset 0 0 18px rgba(86, 217, 255, 0.12);
+      text-shadow: 0 1px 8px rgba(86, 217, 255, 0.35);
+      white-space: nowrap;
+    }
+    .worldRecall.ready { display: block; animation: callPulse 1.15s ease-in-out infinite; }
+    @keyframes callPulse {
+      0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 24px rgba(86, 217, 255, 0.22), inset 0 0 18px rgba(86, 217, 255, 0.08); }
+      50% { transform: translate(-50%, -50%) scale(1.045); box-shadow: 0 0 38px rgba(86, 217, 255, 0.42), inset 0 0 22px rgba(86, 217, 255, 0.16); }
+    }
+    .touch {
+      position: fixed;
+      left: max(14px, env(safe-area-inset-left));
+      right: max(14px, env(safe-area-inset-right));
+      bottom: max(14px, env(safe-area-inset-bottom));
+      display: none;
+      justify-content: space-between;
+      align-items: flex-end;
+      z-index: 12;
+      pointer-events: none;
+    }
+    .cluster { display: flex; gap: 12px; pointer-events: auto; }
+    .touchBtn {
+      width: clamp(56px, 13vw, 82px);
+      height: clamp(56px, 13vw, 82px);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-size: clamp(20px, 5vw, 32px);
+      background: rgba(246, 234, 212, 0.12);
+      border: 1px solid rgba(246, 234, 212, 0.24);
+      backdrop-filter: blur(10px);
+      pointer-events: auto;
+    }
+    @media (hover: none), (pointer: coarse) {
+      .touch { display: flex; }
+      .sub { display: none; }
+    }
+    @media (max-height: 480px) and (orientation: landscape) {
+      .panel { padding: 8px 10px; border-radius: 14px; }
+      .title { font-size: 12px; margin: 0; }
+      .controls button { padding: 7px 9px; font-size: 11px; }
+      .worldRecall { font-size: 9px; padding: 6px 10px; }
+      .touchBtn { width: 52px; height: 52px; font-size: 20px; }
+    }
+    .notice {
+      position: fixed;
+      left: 50%;
+      bottom: 22%;
+      transform: translateX(-50%);
+      background: rgba(10, 14, 20, 0.78);
+      border: 1px solid rgba(246, 234, 212, 0.24);
+      border-radius: 16px;
+      padding: 12px 16px;
+      opacity: 0;
+      transition: opacity .25s ease, transform .25s ease;
+      z-index: 15;
+      font-weight: 800;
+      pointer-events: none;
+      text-align: center;
+      max-width: min(620px, calc(100vw - 40px));
+    }
+    .notice.show { opacity: 1; transform: translateX(-50%) translateY(-8px); }
+    .levelCompleteOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.28s ease;
+      background: radial-gradient(circle at 50% 45%, rgba(86, 217, 255, 0.13), rgba(6, 9, 14, 0.54) 58%, rgba(6, 9, 14, 0.72));
+      backdrop-filter: blur(4px);
+    }
+    .levelCompleteOverlay.show { opacity: 1; }
+    .levelCompleteCard {
+      min-width: min(420px, calc(100vw - 40px));
+      max-width: min(560px, calc(100vw - 40px));
+      padding: clamp(22px, 5vw, 42px);
+      border-radius: 28px;
+      text-align: center;
+      background: rgba(12, 16, 24, 0.82);
+      border: 1px solid rgba(246, 234, 212, 0.28);
+      box-shadow: 0 28px 90px rgba(0, 0, 0, 0.42), 0 0 42px rgba(86, 217, 255, 0.14), inset 0 0 28px rgba(86, 217, 255, 0.08);
+      transform: translateY(18px) scale(0.94);
+      transition: transform 0.28s ease;
+    }
+    .levelCompleteOverlay.show .levelCompleteCard { transform: translateY(0) scale(1); }
+    .levelCompleteKicker { font-size: clamp(11px, 2vw, 13px); letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.7; margin-bottom: 8px; }
+    .levelCompleteTitle { font-size: clamp(28px, 7vw, 54px); line-height: 1; font-weight: 900; letter-spacing: 0.04em; margin-bottom: 12px; text-shadow: 0 0 24px rgba(86, 217, 255, 0.35); }
+    .levelCompleteSub { font-size: clamp(13px, 2.4vw, 17px); line-height: 1.4; opacity: 0.82; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div class="hud">
+    <div class="panel">
+      <div class="title" id="levelTitle">Threadbound</div>
+      <div class="sub" id="levelHelp">Step on the trigger. Recall your past to hold it.</div>
+    </div>
+    <div class="panel controls"><button id="resetBtn">Restart Level</button></div>
+  </div>
+  <div class="touch">
+    <div class="cluster"><div class="touchBtn" data-key="left">‹</div><div class="touchBtn" data-key="right">›</div></div>
+    <div class="cluster"><div class="touchBtn" data-key="jump">⌃</div></div>
+  </div>
+  <button id="recallBtn" class="worldRecall" disabled>Recall</button>
+  <div class="levelCompleteOverlay" id="levelCompleteOverlay">
+    <div class="levelCompleteCard">
+      <div class="levelCompleteKicker" id="levelCompleteKicker">Memory restored</div>
+      <div class="levelCompleteTitle" id="levelCompleteTitle">Level Complete</div>
+      <div class="levelCompleteSub" id="levelCompleteSub">Preparing the next memory...</div>
+    </div>
+  </div>
+  <div class="notice" id="notice"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    const gameEl = document.getElementById('game');
+    const resetBtn = document.getElementById('resetBtn');
+    const recallBtn = document.getElementById('recallBtn');
+    const notice = document.getElementById('notice');
+    const levelTitle = document.getElementById('levelTitle');
+    const levelHelp = document.getElementById('levelHelp');
+    const levelCompleteOverlay = document.getElementById('levelCompleteOverlay');
+    const levelCompleteKicker = document.getElementById('levelCompleteKicker');
+    const levelCompleteTitle = document.getElementById('levelCompleteTitle');
+    const levelCompleteSub = document.getElementById('levelCompleteSub');
+
+    const FIXED = 1 / 60;
+    const MOVE = 5.2;
+    const GRAVITY = -18.5;
+    const JUMP = 10.6;
+    const GHOST_APPEAR_DURATION = 1.05;
+    const BODY_W = 0.55;
+    const BODY_H = 1.45;
+
+    const LEVEL_STATE = Object.freeze({ RECORDING: 'recording', GHOST_APPEARING: 'ghost_appearing', GHOST_REPLAYING: 'ghost_replaying', COMPLETE: 'complete', GAME_DONE: 'game_done' });
+    const GAME_RULES = Object.freeze({ HOLD_FRAMES_AFTER_TRIGGER: 30, MIN_RECORDING_FRAMES: 12, OBSTACLE_BLOCK_MARGIN: 0.22, LEVEL_COMPLETE_DELAY_MS: 1800, MIN_TRIGGER_OBSTACLE_SEPARATION: 0.85 });
+
+    const OBSTACLE_BANK = Object.freeze({
+      blockers: [
+        { id: 'retracting_iron_bars', name: 'Retracting Iron Bars', color: 0x3f4854, emissive: 0x101923, openColor: 0x7fdfff, openEmissive: 0x1fc8ff, linkColor: 0x7fdfff, safeState: 'Bars sink into the floor.' },
+        { id: 'energy_lattice', name: 'Energy Lattice', color: 0x1f6f8f, emissive: 0x0ea9ff, openColor: 0x82e9ff, openEmissive: 0x2ed8ff, linkColor: 0x82e9ff, safeState: 'Energy grid fades out.' },
+        { id: 'collapsing_brick_wall', name: 'Collapsing Brick Wall', color: 0x7b4c38, emissive: 0x32120a, openColor: 0xd49a6a, openEmissive: 0x62300d, linkColor: 0xd49a6a, safeState: 'Wall crumbles into passable rubble.' }
+      ],
+      pathCreators: [
+        { id: 'phantom_bridge', name: 'Phantom Bridge', color: 0x836dff, emissive: 0x5b44ff, openColor: 0xb9f6ff, openEmissive: 0x65dfff, linkColor: 0xb9f6ff, safeState: 'Bridge solidifies into a walkway.' },
+        { id: 'rising_pillar', name: 'Rising Pillar', color: 0x7e7968, emissive: 0x17140e, openColor: 0xc2b999, openEmissive: 0x3c3420, linkColor: 0xc2b999, safeState: 'Pillars rise into stepping stones.' }
+      ],
+      hazardDisablers: [
+        { id: 'tesla_arc', name: 'Tesla Coil Arc', color: 0x4ed9ff, emissive: 0x0bc2ff, openColor: 0x2b4250, openEmissive: 0x071a24, linkColor: 0x4ed9ff, safeState: 'Electric arc dissipates.' },
+        { id: 'flame_jets', name: 'Flame Jets', color: 0xff6a21, emissive: 0xff2a00, openColor: 0x3b4350, openEmissive: 0x0b1018, linkColor: 0xff9b38, safeState: 'Flames extinguish completely.' }
+      ]
+    });
+    const OBSTACLE_PLACEMENT_BANK = Object.freeze([{id:'far_obstacle_from_trigger'}, {id:'dead_end_trigger_ledge'}, {id:'hazard_disable_corridor'}]);
+
+    function safeArray(value) { return Array.isArray(value) ? value : []; }
+    function playerYOnPlatform(platform) { return platform.y + platform.h / 2 + BODY_H / 2; }
+    function triggerYOnPlatform(platform) { return platform.y + platform.h / 2 + 0.09; }
+
+    const LEVELS = [
+      {
+        name: 'Level 1', title: 'Level 1 - First Trigger', help: 'Walk to the trigger. Stand on it, then press Recall so your ghost holds it.',
+        meta: { tiers: 0, gaps: 0, triggers: 1, gameplayLength: 5.9 }, cameraClamp: { min: -2.8, max: 2.0 },
+        platforms: [{ x: 0, y: -3.2, w: 8.5, h: 0.7 }], start: { x: -3.25, y: playerYOnPlatform({ y: -3.2, h: 0.7 }) },
+        triggers: [{ x: -0.25, y: triggerYOnPlatform({ y: -3.2, h: 0.7 }), w: 0.82, h: 0.18 }],
+        obstacles: [{ type: 'door', x: 1.15, y: -1.05, w: 0.62, h: 3.7, label: 'wall', pools: ['blockers'], placement: 'far_obstacle_from_trigger' }],
+        links: [[0, 0]], portal: { x: 2.65, y: -2.52 }
+      },
+      {
+        name: 'Level 2', title: 'Level 2 - One Tier, One Gap', help: 'Jump the gap, climb the tier, stand on the trigger, then press Recall.',
+        meta: { tiers: 1, gaps: 1, triggers: 1, gameplayLength: 9.6 }, cameraClamp: { min: -5.5, max: 5.0 },
+        platforms: [{ x: -3.75, y: -3.2, w: 3.3, h: 0.7 }, { x: 2.0, y: -3.2, w: 5.6, h: 0.7 }, { x: 0.55, y: -1.92, w: 1.7, h: 0.42, tier: true }],
+        start: { x: -4.9, y: playerYOnPlatform({ y: -3.2, h: 0.7 }) }, triggers: [{ x: 0.55, y: triggerYOnPlatform({ y: -1.92, h: 0.42 }), w: 0.86, h: 0.18 }],
+        obstacles: [{ type: 'door', x: 2.9, y: -0.35, w: 0.7, h: 5.1, label: 'tall tier wall', pools: ['blockers', 'pathCreators'], placement: 'dead_end_trigger_ledge' }],
+        links: [[0, 0]], portal: { x: 4.65, y: -2.52 }
+      }
+    ];
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x10141c, 18, 46);
+    const camera = new THREE.OrthographicCamera(-8, 8, 4.5, -4.5, 0.1, 100);
+    camera.position.set(0, 0, 18);
+    camera.lookAt(0, 0, 0);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setClearColor(0x10141c, 1);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    gameEl.appendChild(renderer.domElement);
+    scene.add(new THREE.HemisphereLight(0xddeeff, 0x181018, 2.4));
+    const key = new THREE.DirectionalLight(0xffffff, 2.1);
+    key.position.set(5, 8, 8);
+    scene.add(key);
+    const bg = new THREE.Mesh(new THREE.PlaneGeometry(90, 44), new THREE.MeshBasicMaterial({ color: 0x151b26 }));
+    bg.position.z = -8;
+    scene.add(bg);
+    const stars = new THREE.Group();
+    for (let i = 0; i < 140; i += 1) {
+      const dot = new THREE.Mesh(new THREE.CircleGeometry(Math.random() * 0.018 + 0.006, 8), new THREE.MeshBasicMaterial({ color: Math.random() > 0.72 ? 0x67d8ff : 0xf6ead4, transparent: true, opacity: Math.random() * 0.55 + 0.1 }));
+      dot.position.set((Math.random() - 0.5) * 58, (Math.random() - 0.5) * 24, -6);
+      stars.add(dot);
+    }
+    scene.add(stars);
+    const world = new THREE.Group();
+    scene.add(world);
+    const platformMat = new THREE.MeshStandardMaterial({ color: 0x8a765f, roughness: 0.82, metalness: 0.05 });
+    const tierMat = new THREE.MeshStandardMaterial({ color: 0x7f8b74, roughness: 0.82, metalness: 0.04 });
+    const platformEdgeMat = new THREE.MeshStandardMaterial({ color: 0x3d3028, roughness: 0.9 });
+    const switchMatOff = new THREE.MeshStandardMaterial({ color: 0x6b5a2a, emissive: 0x2d2100, emissiveIntensity: 0.4 });
+    const switchMatOn = new THREE.MeshStandardMaterial({ color: 0xffd45a, emissive: 0xffb000, emissiveIntensity: 1.6 });
+
+    const loader = new GLTFLoader();
+    let actorTemplatePromise = null;
+    function loadActorTemplate() {
+      if (!actorTemplatePromise) actorTemplatePromise = new Promise((resolve, reject) => loader.load('./assets/threadbound_actor.glb', (gltf) => resolve(gltf.scene), undefined, reject));
+      return actorTemplatePromise;
+    }
+    function tintGhost(root) {
+      root.traverse((obj) => {
+        if (!obj.isMesh || !obj.material) return;
+        obj.material = obj.material.clone();
+        obj.material.color.setHex(0x56d9ff);
+        obj.material.emissive = new THREE.Color(0x0fa8ff);
+        obj.material.emissiveIntensity = 1.4;
+        obj.material.transparent = true;
+        obj.material.opacity = 0.48;
+        obj.material.depthWrite = false;
+      });
+    }
+    function makeFallbackCharacter(isEcho) {
+      const group = new THREE.Group();
+      const skin = new THREE.MeshStandardMaterial({ color: isEcho ? 0x61dcff : 0xf4d5b7, transparent: isEcho, opacity: isEcho ? 0.44 : 1, emissive: isEcho ? 0x0fa8ff : 0x000000, emissiveIntensity: isEcho ? 1.2 : 0 });
+      const cloth = new THREE.MeshStandardMaterial({ color: isEcho ? 0x43cfff : 0xb4314a, transparent: isEcho, opacity: isEcho ? 0.35 : 1, emissive: isEcho ? 0x0fa8ff : 0x050000, emissiveIntensity: isEcho ? 1.5 : 0.12 });
+      const dark = new THREE.MeshStandardMaterial({ color: isEcho ? 0x41d7ff : 0x1e2430, transparent: isEcho, opacity: isEcho ? 0.38 : 1, emissive: isEcho ? 0x0fa8ff : 0x000000, emissiveIntensity: isEcho ? 1.2 : 0 });
+      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.62, 6, 12), cloth); torso.position.y = 0.65; torso.scale.x = 0.86; group.add(torso);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 18, 18), skin); head.position.y = 1.25; group.add(head);
+      const armL = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.44, 5, 8), dark); armL.position.set(-0.33, 0.63, 0); group.add(armL);
+      const armR = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.44, 5, 8), dark); armR.position.set(0.33, 0.63, 0); group.add(armR);
+      const legL = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.45, 5, 8), dark); legL.position.set(-0.13, 0.13, 0); group.add(legL);
+      const legR = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.45, 5, 8), dark); legR.position.set(0.13, 0.13, 0); group.add(legR);
+      const scarf = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.09, 0.055), cloth); scarf.position.set(-0.24, 0.98, 0.08); group.add(scarf);
+      group.userData.parts = { armL, armR, legL, legR, scarf };
+      return group;
+    }
+    function makeCharacter({ echo = false } = {}) {
+      const parent = new THREE.Group();
+      const fallback = makeFallbackCharacter(echo);
+      parent.add(fallback);
+      parent.userData.parts = fallback.userData.parts;
+      parent.userData.echo = echo;
+      loadActorTemplate().then((template) => {
+        const model = template.clone(true);
+        model.traverse((obj) => { if (obj.isMesh && obj.material) obj.material = obj.material.clone(); });
+        model.scale.setScalar(1.0);
+        model.position.set(0, 0, 0);
+        if (echo) tintGhost(model);
+        parent.remove(fallback);
+        parent.add(model);
+        parent.userData.model = model;
+        parent.userData.parts = {
+          armL: model.getObjectByName('arm_l'), armR: model.getObjectByName('arm_r'),
+          legL: model.getObjectByName('leg_l'), legR: model.getObjectByName('leg_r'), scarf: model.getObjectByName('scarf')
+        };
+      }).catch((err) => console.warn('Actor GLB failed to load. Procedural fallback is active.', err));
+      return parent;
+    }
+
+    let currentLevelIndex = 0, currentLevel = LEVELS[0], platforms = [], triggerData = [], obstacleData = [], triggerMeshes = [], triggerAuras = [], linkMeshes = [], obstacleMeshes = [], portal = null, objectiveIndex = 0, doorOpenProgress = [], completedObjectives = [], memoryEchoes = [], levelAdvancePending = false;
+    const player = { x: 0, y: 0, vx: 0, vy: 0, w: BODY_W, h: BODY_H, grounded: false, facing: 1 };
+    let echo = null, echoMesh = null, echoRecordingStates = [], recording = [], recordingStates = [], recordingStart = null, levelState = LEVEL_STATE.RECORDING, echoBornAt = -999, echoFocusTimer = 0, triggerFlashTimer = 0, playerFrozenUntilEchoArrives = false, jumpLatch = false;
+    const keys = { left: false, right: false, jump: false };
+    const trails = [], burstRings = [], ghostMist = [];
+    const playerMesh = makeCharacter();
+    scene.add(playerMesh);
+
+    function rects(a, b) { return Math.abs(a.x - b.x) * 2 < (a.w + b.w) && Math.abs(a.y - b.y) * 2 < (a.h + b.h); }
+    function makeBodyAtCurrentStart() { return { x: currentLevel.start.x, y: currentLevel.start.y, vx: 0, vy: 0, w: BODY_W, h: BODY_H, grounded: false, facing: 1, frame: 0 }; }
+    function cloneBodyFromPlayer() { return { x: player.x, y: player.y, vx: 0, vy: 0, w: BODY_W, h: BODY_H, grounded: player.grounded, facing: player.facing, frame: 0 }; }
+    function captureBodyState(body) { return { x: body.x, y: body.y, vx: body.vx, vy: body.vy, grounded: body.grounded, facing: body.facing }; }
+    function applyBodyState(body, state) { if (!body || !state) return; body.x = state.x; body.y = state.y; body.vx = state.vx || 0; body.vy = state.vy || 0; body.grounded = !!state.grounded; body.facing = state.facing || body.facing || 1; }
+    function showNotice(text) { notice.textContent = text; notice.classList.add('show'); clearTimeout(showNotice.timeoutId); showNotice.timeoutId = setTimeout(() => notice.classList.remove('show'), 1400); }
+    function hideLevelCompleteCard() { levelCompleteOverlay.classList.remove('show'); }
+    function showLevelCompleteCard({ title, subtitle, kicker = 'Memory restored' }) { levelCompleteKicker.textContent = kicker; levelCompleteTitle.textContent = title; levelCompleteSub.textContent = subtitle; levelCompleteOverlay.classList.add('show'); }
+    function safeRemoveObject(obj) { if (obj && obj.parent) obj.parent.remove(obj); }
+    function clearGroup(group) { while (group.children.length) group.remove(group.children[0]); }
+    function clearLevelTransientObjects() { safeRemoveObject(echoMesh); echoMesh = null; echo = null; memoryEchoes.forEach((item) => safeRemoveObject(item.mesh)); memoryEchoes = []; trails.forEach((item) => safeRemoveObject(item.mesh)); trails.length = 0; burstRings.forEach((item) => safeRemoveObject(item.mesh)); burstRings.length = 0; ghostMist.forEach((item) => safeRemoveObject(item.mesh)); ghostMist.length = 0; }
+
+    function makePlatform(platform) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(platform.w, platform.h, 1.0), platform.tier ? tierMat : platformMat);
+      mesh.position.set(platform.x, platform.y, 0); world.add(mesh);
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(platform.w + 0.08, 0.06, 1.04), platformEdgeMat);
+      edge.position.set(platform.x, platform.y + platform.h / 2 + 0.045, 0.01); world.add(edge);
+    }
+    function getObstaclePoolEntries(pools) { const entries = []; safeArray(pools && pools.length ? pools : ['blockers']).forEach((poolName) => { const pool = OBSTACLE_BANK[poolName]; if (Array.isArray(pool)) entries.push(...pool); }); return entries.length ? entries : OBSTACLE_BANK.blockers.slice(); }
+    function pickObstacleProfile(obstacle) { const candidates = getObstaclePoolEntries(obstacle && obstacle.pools); return candidates[Math.floor(Math.random() * candidates.length)] || OBSTACLE_BANK.blockers[0]; }
+    function createObstacleMaterial(profile, open = false) { const p = profile || OBSTACLE_BANK.blockers[0]; return new THREE.MeshStandardMaterial({ color: open ? p.openColor : p.color, emissive: open ? p.openEmissive : p.emissive, emissiveIntensity: open ? 1.35 : 0.85, roughness: 0.72, metalness: 0.06, transparent: true, opacity: open ? 0.28 : 1 }); }
+    function applyObstacleMaterial(mesh, obstacle, open, progress) { if (!mesh || !mesh.material) return; const p = obstacle.profile || OBSTACLE_BANK.blockers[0]; mesh.material.color.setHex(open ? p.openColor : p.color); mesh.material.emissive.setHex(open ? p.openEmissive : p.emissive); mesh.material.emissiveIntensity = open ? 1.35 : 0.85; mesh.material.opacity = THREE.MathUtils.lerp(1, 0.28, progress); }
+
+    function buildLevel(index) {
+      levelAdvancePending = false; hideLevelCompleteCard(); currentLevelIndex = Math.max(0, Math.min(index, LEVELS.length - 1)); currentLevel = LEVELS[currentLevelIndex];
+      platforms = safeArray(currentLevel.platforms).map((p) => ({ ...p })); triggerData = safeArray(currentLevel.triggers).map((t) => ({ ...t })); obstacleData = safeArray(currentLevel.obstacles).map((o) => ({ ...o, profile: pickObstacleProfile(o) }));
+      triggerMeshes = []; triggerAuras = []; linkMeshes = []; obstacleMeshes = []; completedObjectives = triggerData.map(() => false); doorOpenProgress = obstacleData.map(() => 0); objectiveIndex = 0;
+      clearLevelTransientObjects(); clearGroup(world); platforms.forEach(makePlatform);
+      triggerData.forEach((trigger) => { const triggerMesh = new THREE.Mesh(new THREE.BoxGeometry(trigger.w, trigger.h, 0.7), switchMatOff); triggerMesh.position.set(trigger.x, trigger.y, 0.2); world.add(triggerMesh); triggerMeshes.push(triggerMesh); const aura = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.035, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffd45a, transparent: true, opacity: 0.42 })); aura.position.set(trigger.x, trigger.y + 0.04, 0.32); world.add(aura); triggerAuras.push(aura); });
+      obstacleData.forEach((obstacle) => { const mesh = new THREE.Mesh(new THREE.BoxGeometry(obstacle.w, obstacle.h, 0.9), createObstacleMaterial(obstacle.profile, false)); mesh.position.set(obstacle.x, obstacle.y, 0.1); world.add(mesh); obstacleMeshes.push(mesh); });
+      safeArray(currentLevel.links).forEach(([triggerIndex, obstacleIndex]) => { const trigger = triggerData[triggerIndex]; const obstacle = obstacleData[obstacleIndex]; if (!trigger || !obstacle) return; const link = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.4, Math.abs(obstacle.x - trigger.x)), 0.045, 0.045), new THREE.MeshBasicMaterial({ color: obstacle.profile?.linkColor || 0xffd45a, transparent: true, opacity: 0.32 })); link.position.set((obstacle.x + trigger.x) / 2, Math.min(trigger.y, obstacle.y) + 0.22, 0.36); world.add(link); linkMeshes.push({ mesh: link, triggerIndex, obstacleIndex, profile: obstacle.profile }); });
+      portal = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.035, 8, 36), new THREE.MeshStandardMaterial({ color: 0x75e6ff, emissive: 0x36ccff, emissiveIntensity: 2.5 })); portal.position.set(currentLevel.portal.x, currentLevel.portal.y, 0.3); world.add(portal);
+      Object.assign(player, makeBodyAtCurrentStart()); beginAutoRecording(`${currentLevel.title}: reach trigger 1`); updateHud();
+    }
+    function updateHud() { const total = Math.max(1, triggerData.length); const next = Math.min(objectiveIndex + 1, total); levelTitle.textContent = currentLevel.title; levelHelp.textContent = `${currentLevel.help} Current objective: trigger ${next} of ${total}. Stand on it, then press Recall above the actor.`; }
+    function worldToScreen(x, y, z = 0.65) { const projected = new THREE.Vector3(x, y, z).project(camera); return { x: (projected.x * 0.5 + 0.5) * innerWidth, y: (-projected.y * 0.5 + 0.5) * innerHeight }; }
+    function updateRecallButton() { const canRecall = levelState === LEVEL_STATE.RECORDING && isStandingOnTrigger(player, objectiveIndex) && recording.length >= GAME_RULES.MIN_RECORDING_FRAMES; recallBtn.disabled = !canRecall; recallBtn.classList.toggle('ready', canRecall); updateRecallButtonPosition(); }
+    function updateRecallButtonPosition() { if (!recallBtn.classList.contains('ready')) return; const screen = worldToScreen(player.x, player.y + 1.72, 0.65); recallBtn.style.left = `${screen.x}px`; recallBtn.style.top = `${screen.y}px`; }
+    function getInput(sourceKeys) { return { left: sourceKeys.left, right: sourceKeys.right, jump: sourceKeys.jump && !jumpLatch }; }
+    function getLinkedTriggerIndexForObstacle(obstacleIndex) { const link = safeArray(currentLevel.links).find(([, linkedObstacleIndex]) => linkedObstacleIndex === obstacleIndex); return link ? link[0] : -1; }
+    function isStandingOnTrigger(body, triggerIndex = objectiveIndex) { if (!body || !triggerData[triggerIndex]) return false; const trigger = triggerData[triggerIndex]; const feetX = body.x; const feetY = body.y - body.h / 2; return Math.abs(feetX - trigger.x) <= trigger.w * 0.48 && feetY >= trigger.y - trigger.h / 2 - 0.09 && feetY <= trigger.y + trigger.h / 2 + 0.22 && body.grounded; }
+    function isTriggerHeldByAny(triggerIndex) { if (isStandingOnTrigger(player, triggerIndex)) return true; if (echo && isStandingOnTrigger(echo, triggerIndex)) return true; return memoryEchoes.some((item) => item.triggerIndex === triggerIndex && isStandingOnTrigger(item.body, triggerIndex)); }
+    function pinBodyToTrigger(body, triggerIndex) { const trigger = triggerData[triggerIndex]; if (!trigger) return body; body.x = trigger.x; body.y = trigger.y + trigger.h / 2 + BODY_H / 2 - 0.02; body.vx = 0; body.vy = 0; body.w = BODY_W; body.h = BODY_H; body.grounded = true; return body; }
+    function isObstacleBlocking(obstacle, index) { const linkedTriggerIndex = getLinkedTriggerIndexForObstacle(index); if (linkedTriggerIndex < 0) return true; return !isTriggerHeldByAny(linkedTriggerIndex); }
+
+    function physicsStep(body, input) {
+      body.vx = (input.right ? MOVE : 0) - (input.left ? MOVE : 0); if (body.vx > 0.01) body.facing = 1; if (body.vx < -0.01) body.facing = -1; if (input.jump && body.grounded) { body.vy = JUMP; body.grounded = false; } body.vy += GRAVITY * FIXED;
+      body.x += body.vx * FIXED; platforms.forEach((solid) => { if (rects({ x: body.x, y: body.y, w: body.w, h: body.h }, solid)) { if (body.vx > 0) body.x = solid.x - solid.w / 2 - body.w / 2; if (body.vx < 0) body.x = solid.x + solid.w / 2 + body.w / 2; } }); obstacleData.forEach((obstacle, index) => { if (isObstacleBlocking(obstacle, index) && rects({ x: body.x, y: body.y, w: body.w, h: body.h }, obstacle)) { if (body.vx > 0) body.x = obstacle.x - obstacle.w / 2 - body.w / 2; if (body.vx < 0) body.x = obstacle.x + obstacle.w / 2 + body.w / 2; } });
+      body.y += body.vy * FIXED; body.grounded = false; platforms.forEach((solid) => { if (rects({ x: body.x, y: body.y, w: body.w, h: body.h }, solid)) { if (body.vy < 0) { body.y = solid.y + solid.h / 2 + body.h / 2; body.vy = 0; body.grounded = true; } else if (body.vy > 0) { body.y = solid.y - solid.h / 2 - body.h / 2; body.vy = 0; } } }); obstacleData.forEach((obstacle, index) => { if (isObstacleBlocking(obstacle, index) && rects({ x: body.x, y: body.y, w: body.w, h: body.h }, obstacle)) { if (body.vy < 0) { body.y = obstacle.y + obstacle.h / 2 + body.h / 2; body.vy = 0; body.grounded = true; } else if (body.vy > 0) { body.y = obstacle.y - obstacle.h / 2 - body.h / 2; body.vy = 0; } } });
+      if (body.y < -7) { if (body === player) buildLevel(currentLevelIndex); else { body.x = recordingStart ? recordingStart.x : currentLevel.start.x; body.y = recordingStart ? recordingStart.y : currentLevel.start.y; body.vx = 0; body.vy = 0; } }
+    }
+    function setGhostOpacity(group, factor) { if (!group) return; group.traverse((obj) => { if (!obj.material) return; const mats = Array.isArray(obj.material) ? obj.material : [obj.material]; mats.forEach((mat) => { if (mat.userData.baseOpacity === undefined) mat.userData.baseOpacity = mat.opacity; mat.transparent = true; mat.depthWrite = false; mat.opacity = mat.userData.baseOpacity * factor; }); }); }
+    function spawnTrail(x, y) { if (trails.length > 90) { const old = trails.shift(); if (old) safeRemoveObject(old.mesh); } const mesh = new THREE.Mesh(new THREE.CircleGeometry(0.12, 10), new THREE.MeshBasicMaterial({ color: 0x56d9ff, transparent: true, opacity: 0.34, depthWrite: false })); mesh.position.set(x, y, 0.25); scene.add(mesh); trails.push({ mesh, life: 1 }); }
+    function updateTrails() { for (let i = trails.length - 1; i >= 0; i -= 1) { const trail = trails[i]; trail.life -= 0.028; trail.mesh.material.opacity = Math.max(0, trail.life) * 0.28; trail.mesh.scale.multiplyScalar(1.015); if (trail.life <= 0) { safeRemoveObject(trail.mesh); trails.splice(i, 1); } } }
+    function spawnResurrectionBurst(x, y) { for (let i = 0; i < 4; i += 1) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.18 + i * 0.16, 0.014, 8, 56), new THREE.MeshBasicMaterial({ color: 0x56d9ff, transparent: true, opacity: 0.95 - i * 0.15, depthWrite: false })); ring.position.set(x, y - 0.68 + i * 0.04, 0.58 + i * 0.035); ring.rotation.x = Math.PI * 0.5; scene.add(ring); burstRings.push({ mesh: ring, life: 1, speed: 0.018 + i * 0.008 }); } }
+    function updateResurrectionBurst() { for (let i = burstRings.length - 1; i >= 0; i -= 1) { const burst = burstRings[i]; burst.life -= 0.024; burst.mesh.scale.multiplyScalar(1.035 + burst.speed); burst.mesh.material.opacity = Math.max(0, burst.life) * 0.82; burst.mesh.rotation.z += 0.045; if (burst.life <= 0) { safeRemoveObject(burst.mesh); burstRings.splice(i, 1); } } }
+    function beginAutoRecording(message) { echo = null; echoMesh = null; echoRecordingStates = []; recording = []; recordingStates = [captureBodyState(player)]; recordingStart = cloneBodyFromPlayer(); levelState = LEVEL_STATE.RECORDING; echoBornAt = -999; echoFocusTimer = 0; triggerFlashTimer = 0; playerFrozenUntilEchoArrives = false; showNotice(message || `Reach trigger ${objectiveIndex + 1}, then press Recall`); updateHud(); updateRecallButton(); }
+    function finishRecording() { if (levelState !== LEVEL_STATE.RECORDING || recording.length < GAME_RULES.MIN_RECORDING_FRAMES) return; if (!isStandingOnTrigger(player, objectiveIndex)) { showNotice(`Stand on trigger ${objectiveIndex + 1} before recalling`); return; } levelState = LEVEL_STATE.GHOST_APPEARING; echoRecordingStates = recordingStates.slice(); const heldTriggerState = captureBodyState(player); pinBodyToTrigger(heldTriggerState, objectiveIndex); for (let i = 0; i < GAME_RULES.HOLD_FRAMES_AFTER_TRIGGER; i += 1) echoRecordingStates.push({ ...heldTriggerState, vx: 0, vy: 0, grounded: true }); const start = recordingStart ? { ...recordingStart } : cloneBodyFromPlayer(); if (echoMesh) safeRemoveObject(echoMesh); echo = { ...start, vx: 0, vy: 0, grounded: false, frame: 0, playbackDone: false }; echoMesh = makeCharacter({ echo: true }); echoMesh.scale.setScalar(0.22); setGhostOpacity(echoMesh, 0); scene.add(echoMesh); echoBornAt = performance.now() / 1000; echoFocusTimer = 2.6; triggerFlashTimer = 1.15; playerFrozenUntilEchoArrives = true; player.vx = 0; player.vy = 0; player.grounded = true; spawnResurrectionBurst(start.x, start.y); showNotice(`Trigger ${objectiveIndex + 1} activated - ghost appearing`); }
+    function completeCurrentObjective() { if (completedObjectives[objectiveIndex]) return; completedObjectives[objectiveIndex] = true; playerFrozenUntilEchoArrives = false; echoFocusTimer = 1.0; triggerFlashTimer = 0; if (echo && echoMesh) { const pinnedGhostBody = pinBodyToTrigger({ ...echo, vx: 0, vy: 0, grounded: true }, objectiveIndex); memoryEchoes.push({ body: pinnedGhostBody, mesh: echoMesh, triggerIndex: objectiveIndex }); } echo = null; echoMesh = null; objectiveIndex += 1; if (objectiveIndex >= triggerData.length) { levelState = LEVEL_STATE.COMPLETE; showNotice('All triggers solved - reach the portal'); } else { beginAutoRecording(`Reach trigger ${objectiveIndex + 1}, then press Recall`); } updateHud(); }
+    function getTriggerVisualActive(triggerIndex) { return isTriggerHeldByAny(triggerIndex) || (triggerIndex === objectiveIndex && playerFrozenUntilEchoArrives) || (triggerIndex === objectiveIndex && triggerFlashTimer > 0); }
+    function updateSwitchesAndObjectives() { if (levelState === LEVEL_STATE.RECORDING && isStandingOnTrigger(player, objectiveIndex)) triggerFlashTimer = Math.max(triggerFlashTimer, 0.18); if (levelState === LEVEL_STATE.GHOST_REPLAYING && echo && isStandingOnTrigger(echo, objectiveIndex)) completeCurrentObjective(); updateRecallButton(); }
+    function updateMechanicVisuals(t) { triggerFlashTimer = Math.max(0, triggerFlashTimer - FIXED); triggerMeshes.forEach((mesh, index) => { mesh.material = getTriggerVisualActive(index) ? switchMatOn : switchMatOff; }); triggerAuras.forEach((aura, index) => { const active = getTriggerVisualActive(index); const pulse = 0.5 + Math.sin(t * 7 + index) * 0.5; aura.scale.setScalar(1 + pulse * 0.08 + (active ? 0.18 : 0)); aura.material.opacity = active ? 0.75 : 0.32 + pulse * 0.16; }); obstacleData.forEach((obstacle, index) => { const open = !isObstacleBlocking(obstacle, index); doorOpenProgress[index] += ((open ? 1 : 0) - doorOpenProgress[index]) * 0.12; const progress = doorOpenProgress[index]; const mesh = obstacleMeshes[index]; applyObstacleMaterial(mesh, obstacle, open, progress); if (!mesh) return; mesh.scale.y = Math.max(0.08, 1 - progress * 0.92); mesh.position.y = obstacle.y + obstacle.h * progress * 0.48; }); linkMeshes.forEach(({ mesh, triggerIndex, profile }) => { if (!mesh) return; const active = getTriggerVisualActive(triggerIndex); const pulse = 0.5 + Math.sin(t * 7 + triggerIndex) * 0.5; if (profile && profile.linkColor !== undefined) mesh.material.color.setHex(profile.linkColor); mesh.material.opacity = active ? 0.78 : 0.24 + pulse * 0.12; mesh.scale.y = active ? 1.9 : 1; }); }
+    function updateEcho() { if (!echo || levelState !== LEVEL_STATE.GHOST_REPLAYING) return; if (echo.frame < echoRecordingStates.length) { applyBodyState(echo, echoRecordingStates[echo.frame]); echo.frame += 1; } else { echo.playbackDone = true; pinBodyToTrigger(echo, objectiveIndex); } if (echo.frame % 5 === 0) spawnTrail(echo.x, echo.y); }
+    function fixedUpdate() { const rawInput = getInput(keys); const controlsLocked = playerFrozenUntilEchoArrives || levelState === LEVEL_STATE.GAME_DONE; const playerInput = controlsLocked ? { left: false, right: false, jump: false } : rawInput; if (levelState === LEVEL_STATE.RECORDING) recording.push({ ...playerInput }); physicsStep(player, playerInput); if (levelState === LEVEL_STATE.RECORDING) recordingStates.push(captureBodyState(player)); updateEcho(); updateSwitchesAndObjectives(); checkPortalAdvance(); jumpLatch = keys.jump; }
+    function checkPortalAdvance() { if (levelState !== LEVEL_STATE.COMPLETE || levelAdvancePending) return; const portalRect = { x: currentLevel.portal.x, y: currentLevel.portal.y, w: 0.95, h: 1.35 }; if (!rects(player, portalRect)) return; levelAdvancePending = true; playerFrozenUntilEchoArrives = true; recallBtn.classList.remove('ready'); recallBtn.disabled = true; if (currentLevelIndex < LEVELS.length - 1) { const nextLevel = LEVELS[currentLevelIndex + 1]; showLevelCompleteCard({ title: 'Level Complete', subtitle: `Entering ${nextLevel.name}...`, kicker: currentLevel.name }); setTimeout(() => buildLevel(currentLevelIndex + 1), GAME_RULES.LEVEL_COMPLETE_DELAY_MS); } else { levelState = LEVEL_STATE.GAME_DONE; showLevelCompleteCard({ title: 'Prototype Complete', subtitle: 'All available memories restored.', kicker: 'Threadbound' }); } }
+    function animateCharacter(mesh, body, t) { if (!mesh || !body) return; mesh.position.set(body.x, body.y - body.h / 2, 0.45); mesh.rotation.y = body.facing === 1 ? 0 : Math.PI; const speed = Math.abs(body.vx); const parts = mesh.userData.parts; const walking = body.grounded && speed > 0.1; const phase = t * (walking ? 9 : 2.4); if (parts) { if (parts.legL) parts.legL.rotation.x = walking ? Math.sin(phase) * 0.65 : 0; if (parts.legR) parts.legR.rotation.x = walking ? -Math.sin(phase) * 0.65 : 0; if (parts.armL) parts.armL.rotation.x = walking ? -Math.sin(phase) * 0.5 : Math.sin(phase) * 0.04; if (parts.armR) parts.armR.rotation.x = walking ? Math.sin(phase) * 0.5 : -Math.sin(phase) * 0.04; if (parts.scarf) parts.scarf.rotation.z = -0.28 + Math.sin(t * 5) * 0.05 - body.vx * 0.015; } if (!mesh.userData.echo) mesh.scale.setScalar(Math.max(0.88, Math.min(1.05, 1 + (body.grounded ? Math.sin(t * 3) * 0.01 : -0.03)))); }
+    function updateGhostAppearance(t) { if (!echoMesh || !echo) return; const age = t - echoBornAt; if (age >= 0 && age < GHOST_APPEAR_DURATION) { const k = Math.min(1, age / GHOST_APPEAR_DURATION); const eased = 1 - Math.pow(1 - k, 3); setGhostOpacity(echoMesh, eased); echoMesh.scale.setScalar(0.22 + eased * 0.83 + Math.sin(k * Math.PI) * 0.16); echoMesh.position.y += Math.sin(k * Math.PI) * 0.18; } else if (age >= GHOST_APPEAR_DURATION) { setGhostOpacity(echoMesh, 1); if (levelState === LEVEL_STATE.GHOST_APPEARING) { levelState = LEVEL_STATE.GHOST_REPLAYING; showNotice(`Ghost replaying path to trigger ${objectiveIndex + 1}`); } } }
+    function updateLevelAnimations(t) { updateTrails(); updateResurrectionBurst(); updateMechanicVisuals(t); if (portal) portal.rotation.z += 0.018; stars.rotation.z += 0.0002; }
+    function updateCamera(dt) { echoFocusTimer = Math.max(0, echoFocusTimer - dt); let focusBody = player; if (echoFocusTimer > 0 && echo) focusBody = { x: (echo.x + player.x) * 0.5, y: Math.max(echo.y, player.y) }; const clamp = currentLevel.cameraClamp || { min: -4, max: 4 }; const targetX = THREE.MathUtils.clamp(focusBody.x, clamp.min, clamp.max); camera.position.x += (targetX - camera.position.x) * 0.075; camera.position.y += ((focusBody.y + 0.8) - camera.position.y) * 0.045; camera.position.y = THREE.MathUtils.clamp(camera.position.y, -1.2, 1.5); }
+    function resize() { const w = innerWidth, h = innerHeight; const dpr = Math.min(devicePixelRatio || 1, w < 900 ? 1.5 : 2); renderer.setPixelRatio(dpr); renderer.setSize(w, h, false); const aspect = w / h; let viewH = aspect < 0.7 ? 10.6 : aspect > 1.9 ? 7.3 : 8.4; if (h < 470 && aspect > 1.4) viewH = 6.4; const viewW = viewH * aspect; camera.left = -viewW / 2; camera.right = viewW / 2; camera.top = viewH / 2; camera.bottom = -viewH / 2; camera.updateProjectionMatrix(); }
+    addEventListener('resize', resize); resize();
+    recallBtn.addEventListener('click', () => { if (levelState !== LEVEL_STATE.RECORDING) return; if (!isStandingOnTrigger(player, objectiveIndex)) { showNotice('Stand on the trigger first'); return; } finishRecording(); });
+    resetBtn.addEventListener('click', () => { levelAdvancePending = false; buildLevel(currentLevelIndex); });
+    addEventListener('keydown', (event) => { if (event.code === 'ArrowLeft' || event.code === 'KeyA') keys.left = true; if (event.code === 'ArrowRight' || event.code === 'KeyD') keys.right = true; if (event.code === 'Space' || event.code === 'ArrowUp' || event.code === 'KeyW') keys.jump = true; if (event.code === 'KeyR') buildLevel(currentLevelIndex); });
+    addEventListener('keyup', (event) => { if (event.code === 'ArrowLeft' || event.code === 'KeyA') keys.left = false; if (event.code === 'ArrowRight' || event.code === 'KeyD') keys.right = false; if (event.code === 'Space' || event.code === 'ArrowUp' || event.code === 'KeyW') keys.jump = false; });
+    document.querySelectorAll('.touchBtn').forEach((btn) => { const keyName = btn.dataset.key; const press = (event) => { event.preventDefault(); if (btn.setPointerCapture) btn.setPointerCapture(event.pointerId); keys[keyName] = true; }; const release = (event) => { event.preventDefault(); keys[keyName] = false; }; btn.addEventListener('pointerdown', press); btn.addEventListener('pointerup', release); btn.addEventListener('pointercancel', release); btn.addEventListener('pointerleave', release); });
+    function runSelfTests() { console.assert(LEVELS.length === 2, 'Prototype should contain exactly Level 1 and Level 2'); console.assert(LEVELS[1].platforms.filter((p) => p.tier).length === 1, 'Level 2 must contain one tier'); console.assert(LEVELS[1].triggers.length === 1, 'Level 2 must contain one trigger'); console.assert(LEVELS[1].obstacles.length === 1, 'Level 2 must contain one obstacle'); console.info('Threadbound package self-tests passed'); }
+    let accumulator = 0, last = performance.now();
+    function loop(now) { const dt = Math.min(0.05, (now - last) / 1000); last = now; accumulator += dt; while (accumulator >= FIXED) { fixedUpdate(); accumulator -= FIXED; } const t = now / 1000; animateCharacter(playerMesh, player, t); animateCharacter(echoMesh, echo, t); memoryEchoes.forEach((item) => animateCharacter(item.mesh, item.body, t)); updateGhostAppearance(t); updateLevelAnimations(t); updateCamera(dt); updateRecallButtonPosition(); renderer.render(scene, camera); requestAnimationFrame(loop); }
+    runSelfTests(); buildLevel(0); requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
